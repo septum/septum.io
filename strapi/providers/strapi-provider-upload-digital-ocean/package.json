@@ -1,0 +1,30 @@
+{
+  "name": "strapi-provider-upload-digital-ocean",
+  "version": "3.6.8",
+  "private": true,
+  "description": "Digital ocean spaces provider for Strapi upload plugin",
+  "author": "Orlando Valverde <orlando.jesig.va@gmail.com>",
+  "license": "MIT",
+  "directories": {
+    "lib": "./lib"
+  },
+  "main": "./lib",
+  "dependencies": {
+    "aws-sdk": "2.1090.0",
+    "urijs": "1.19.10"
+  },
+  "strapi": {
+    "isProvider": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@gitlab.com/septum-io/septum-io.git"
+  },
+  "bugs": {
+    "url": "https://gitlab.com/septum-io/septum-io/issues"
+  },
+  "engines": {
+    "node": ">=10.16.0 <=14.x.x",
+    "npm": "^6.0.0"
+  }
+}

@@ -1,0 +1,52 @@
+# BASE DEPENDENCIES IMAGE #
+
+FROM node:14-alpine AS base-dependencies
+
+WORKDIR /usr/local/src/strapi
+
+ENV NODE_ENV=production
+
+RUN apk add --no-cache libc6-compat
+
+
+# DOWNLOAD DEPENDENCIES STAGE #
+
+FROM base-dependencies AS download-dependencies
+
+COPY package.json package-lock.json ./
+COPY ./providers ./providers
+
+RUN npm ci --only=production
+
+
+# BUILD STAGE #
+
+FROM base-dependencies AS build
+
+ARG CLIENT_URL
+ENV CLIENT_URL=${CLIENT_URL}
+
+ARG CLIENT_PREVIEW_SECRET
+ENV CLIENT_PREVIEW_SECRET=${CLIENT_PREVIEW_SECRET}
+
+COPY --from=download-dependencies /usr/local/src/strapi ./
+COPY ./admin ./admin
+COPY ./extensions ./extensions
+
+RUN npm run build
+
+
+# RUN STAGE #
+
+FROM base-dependencies AS run
+
+COPY --from=build --chown=node:node /usr/local/src/strapi ./
+COPY --chown=node:node ./public ./public
+COPY --chown=node:node ./config ./config
+COPY --chown=node:node ./api ./api
+
+USER node
+
+EXPOSE 5000
+
+CMD ["node_modules/.bin/strapi", "start"]

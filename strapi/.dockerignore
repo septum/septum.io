@@ -1,0 +1,23 @@
+# git
+.gitignore
+
+# dependencies
+node_modules/
+
+# strapi
+.cache/
+.tmp/
+build/
+.strapi-updater.json
+
+# docker
+dockerfile
+.dockerignore
+
+# environment
+.env
+
+# linter
+.eslintignore
+.eslintrc
+

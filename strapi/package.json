@@ -1,0 +1,45 @@
+{
+  "name": "@septum-io/strapi",
+  "private": true,
+  "version": "0.1.0",
+  "description": "",
+  "author": "Orlando Valverde <orlando.jesig.va@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "dev": "strapi develop",
+    "start": "strapi start",
+    "build": "strapi build",
+    "strapi": "strapi"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@gitlab.com/septum-io/septum-io.git"
+  },
+  "bugs": {
+    "url": "https://gitlab.com/septum-io/septum-io/issues"
+  },
+  "homepage": "https://gitlab.com/septum-io/septum-io",
+  "dependencies": {
+    "knex": "1.0.3",
+    "pg": "8.7.3",
+    "strapi": "3.6.8",
+    "strapi-admin": "3.6.8",
+    "strapi-connector-bookshelf": "3.6.8",
+    "strapi-plugin-content-manager": "3.6.8",
+    "strapi-plugin-content-type-builder": "3.6.8",
+    "strapi-plugin-email": "3.6.8",
+    "strapi-plugin-i18n": "3.6.8",
+    "strapi-plugin-upload": "3.6.8",
+    "strapi-plugin-users-permissions": "3.6.8",
+    "strapi-provider-upload-digital-ocean": "file:providers/strapi-provider-upload-digital-ocean",
+    "strapi-utils": "3.6.8"
+  },
+  "devDependencies": {},
+  "strapi": {
+    "uuid": "7b581c0d-89b7-479e-b379-a76ab90b8754"
+  },
+  "engines": {
+    "node": ">=10.16.0 <=14.x.x",
+    "npm": "^6.0.0"
+  }
+}

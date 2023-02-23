@@ -1,0 +1,309 @@
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+      when: always
+
+stages:
+  - terraform
+  - terraform_deploy
+  - strapi
+  - website
+
+terraform:init:
+  stage: terraform
+  rules:
+    - when: manual
+  image: registry.gitlab.com/gitlab-org/terraform-images/stable:latest
+  variables:
+    TF_ROOT: ${CI_PROJECT_DIR}/terraform
+    TF_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${CI_PROJECT_NAME}
+  cache:
+    key: terraform
+    paths:
+      - ${TF_ROOT}/.terraform
+  before_script:
+    - cd ${TF_ROOT}
+  script:
+    - gitlab-terraform init
+
+terraform:validate:
+  stage: terraform
+  rules:
+    - when: manual
+  image: registry.gitlab.com/gitlab-org/terraform-images/stable:latest
+  variables:
+    TF_ROOT: ${CI_PROJECT_DIR}/terraform
+    TF_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${CI_PROJECT_NAME}
+  cache:
+    key: terraform
+    paths:
+      - ${TF_ROOT}/.terraform
+  before_script:
+    - set -o allexport
+    - source ${TERRAFORM_ENV_FILE}
+    - set +o allexport
+    - cd ${TF_ROOT}
+  script:
+    - gitlab-terraform init
+    - gitlab-terraform validate
+
+terraform:plan:
+  stage: terraform
+  rules:
+    - when: manual
+  image: registry.gitlab.com/gitlab-org/terraform-images/stable:latest
+  variables:
+    TF_ROOT: ${CI_PROJECT_DIR}/terraform
+    TF_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${CI_PROJECT_NAME}
+  cache:
+    key: terraform
+    paths:
+      - ${TF_ROOT}/.terraform
+  before_script:
+    - set -o allexport
+    - source ${TERRAFORM_ENV_FILE}
+    - set +o allexport
+    - cd ${TF_ROOT}
+  script:
+    - gitlab-terraform plan
+    - gitlab-terraform plan-json
+  artifacts:
+    name: terraform:plan
+    paths:
+      - ${TF_ROOT}/plan.cache
+    reports:
+      terraform: ${TF_ROOT}/plan.json
+
+terraform:apply:
+  stage: terraform_deploy
+  rules:
+    - when: manual
+  image: registry.gitlab.com/gitlab-org/terraform-images/stable:latest
+  variables:
+    TF_ROOT: ${CI_PROJECT_DIR}/terraform
+    TF_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${CI_PROJECT_NAME}
+  cache:
+    key: terraform
+    paths:
+      - ${TF_ROOT}/.terraform
+  dependencies:
+    - terraform:plan
+  before_script:
+    - set -o allexport
+    - source ${TERRAFORM_ENV_FILE}
+    - set +o allexport
+    - cd ${TF_ROOT}
+  script:
+    - gitlab-terraform apply
+
+terraform:destroy:
+  stage: terraform_deploy
+  rules:
+    - when: manual
+  image: registry.gitlab.com/gitlab-org/terraform-images/stable:latest
+  variables:
+    TF_ROOT: ${CI_PROJECT_DIR}/terraform
+    TF_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${CI_PROJECT_NAME}
+  cache:
+    key: terraform
+    paths:
+      - ${TF_ROOT}/.terraform
+  dependencies:
+    - terraform:plan
+  before_script:
+    - set -o allexport
+    - source ${TERRAFORM_ENV_FILE}
+    - set +o allexport
+    - cd ${TF_ROOT}
+  script:
+    - gitlab-terraform destroy
+
+strapi:build:
+  stage: strapi
+  rules:
+    - when: manual
+  image: docker:20.10
+  needs: []
+  services:
+    - docker:20.10-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: /certs
+    REGISTRY_IMAGE_NAME: ${CI_REGISTRY_IMAGE}/strapi
+    DOCKER_BUILDKIT: 1
+  before_script:
+    - set -o allexport
+    - source ${STRAPI_ENV_FILE}
+    - set +o allexport
+    - echo ${CI_REGISTRY_PASSWORD} | docker login -u ${CI_REGISTRY_USER} --password-stdin ${CI_REGISTRY}
+  script:
+    - docker pull --all-tags ${REGISTRY_IMAGE_NAME} || true
+    - docker build
+      --target base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --tag ${REGISTRY_IMAGE_NAME}:base-dependencies
+      ${CI_PROJECT_DIR}/strapi
+    - docker build
+      --target download-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:download-dependencies
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --tag ${REGISTRY_IMAGE_NAME}:download-dependencies
+      ${CI_PROJECT_DIR}/strapi
+    - docker build
+      --target build
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:download-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --build-arg CLIENT_URL=${CLIENT_URL}
+      --build-arg CLIENT_PREVIEW_SECRET=${CLIENT_PREVIEW_SECRET}
+      --tag ${REGISTRY_IMAGE_NAME}:build
+      ${CI_PROJECT_DIR}/strapi
+    - docker build
+      --target run
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:download-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build
+      --cache-from ${REGISTRY_IMAGE_NAME}:latest
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --build-arg CLIENT_URL=${CLIENT_URL}
+      --build-arg CLIENT_PREVIEW_SECRET=${CLIENT_PREVIEW_SECRET}
+      --tag ${REGISTRY_IMAGE_NAME}:latest
+      ${CI_PROJECT_DIR}/strapi
+    - docker push --all-tags  ${REGISTRY_IMAGE_NAME}
+
+website:build:
+  stage: website
+  rules:
+    - when: manual
+  image: docker:20.10
+  needs: []
+  services:
+    - docker:20.10-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: /certs
+    REGISTRY_IMAGE_NAME: ${CI_REGISTRY_IMAGE}/website
+    DOCKER_BUILDKIT: 1
+  before_script:
+    - set -o allexport
+    - source ${WEBSITE_ENV_FILE}
+    - set +o allexport
+    - echo ${CI_REGISTRY_PASSWORD} | docker login -u ${CI_REGISTRY_USER} --password-stdin ${CI_REGISTRY}
+  script:
+    - docker pull --all-tags ${REGISTRY_IMAGE_NAME} || true
+    - docker build
+      --target base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --tag ${REGISTRY_IMAGE_NAME}:base-dependencies
+      ${CI_PROJECT_DIR}/website
+    - docker build
+      --target run-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:run-dependencies
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --tag ${REGISTRY_IMAGE_NAME}:run-dependencies
+      ${CI_PROJECT_DIR}/website
+    - docker build
+      --target build-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:run-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build-dependencies
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --tag ${REGISTRY_IMAGE_NAME}:build-dependencies
+      ${CI_PROJECT_DIR}/website
+    - docker build
+      --target build
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:run-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --build-arg NEXT_PUBLIC_HOST=${NEXT_PUBLIC_HOST}
+      --build-arg NEXT_PUBLIC_ASSETS_URL=${NEXT_PUBLIC_ASSETS_URL}
+      --build-arg INTERNAL_CMS_URL=${INTERNAL_CMS_URL}
+      --build-arg CMS_REQUEST_TOKEN=${CMS_REQUEST_TOKEN}
+      --build-arg PUBLIC_ASSETS_DOMAIN=${PUBLIC_ASSETS_DOMAIN}
+      --build-arg NEXT_PUBLIC_REVALIDATE_IN_SECONDS=${NEXT_PUBLIC_REVALIDATE_IN_SECONDS}
+      --build-arg PREVIEW_SECRET_TOKEN=${PREVIEW_SECRET_TOKEN}
+      --tag ${REGISTRY_IMAGE_NAME}:build
+      ${CI_PROJECT_DIR}/website
+    - docker build
+      --target run
+      --cache-from ${REGISTRY_IMAGE_NAME}:base-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:run-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build-dependencies
+      --cache-from ${REGISTRY_IMAGE_NAME}:build
+      --cache-from ${REGISTRY_IMAGE_NAME}:latest
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --build-arg NEXT_PUBLIC_HOST=${NEXT_PUBLIC_HOST}
+      --build-arg NEXT_PUBLIC_ASSETS_URL=${NEXT_PUBLIC_ASSETS_URL}
+      --build-arg INTERNAL_CMS_URL=${INTERNAL_CMS_URL}
+      --build-arg CMS_REQUEST_TOKEN=${CMS_REQUEST_TOKEN}
+      --build-arg PUBLIC_ASSETS_DOMAIN=${PUBLIC_ASSETS_DOMAIN}
+      --build-arg NEXT_PUBLIC_REVALIDATE_IN_SECONDS=${NEXT_PUBLIC_REVALIDATE_IN_SECONDS}
+      --build-arg PREVIEW_SECRET_TOKEN=${PREVIEW_SECRET_TOKEN}
+      --tag ${REGISTRY_IMAGE_NAME}:latest
+      ${CI_PROJECT_DIR}/website
+    - docker push --all-tags ${REGISTRY_IMAGE_NAME}
+
+strapi:deploy:
+  stage: strapi
+  rules:
+    - when: manual
+  image: alpine:3.14
+  needs: ["strapi:build"]
+  variables:
+    REGISTRY_IMAGE_NAME: ${CI_REGISTRY_IMAGE}/strapi
+  before_script:
+    - set -o allexport
+    - source ${DEPLOY_ENV_FILE}
+    - set +o allexport
+    - apk update
+    - apk add --no-cache openssh-client
+    - chmod og= ${DEPLOY_SSH_KEY}
+  script:
+    - scp -i ${DEPLOY_SSH_KEY} -o StrictHostKeyChecking=no
+      ${STRAPI_ENV_FILE} ${WEBSITE_ENV_FILE} ${ROOT_ENV_FILE}
+      ${DEPLOY_USER}@${DEPLOY_HOST}:~/${CI_PROJECT_NAME}
+    - ssh -i ${DEPLOY_SSH_KEY} -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST}
+      "echo ${CI_REGISTRY_PASSWORD} | docker login -u ${CI_REGISTRY_USER} --password-stdin ${CI_REGISTRY} &&
+      docker pull ${REGISTRY_IMAGE_NAME} &&
+      cd ~/${CI_PROJECT_NAME} &&
+      git pull origin main &&
+      mv ROOT_ENV_FILE .env &&
+      mv STRAPI_ENV_FILE strapi/.env &&
+      mv WEBSITE_ENV_FILE website/.env &&
+      docker-compose up --detach --no-build strapi"
+
+website:deploy:
+  stage: website
+  rules:
+    - when: manual
+  image: alpine:3.14
+  needs: ["website:build"]
+  variables:
+    REGISTRY_IMAGE_NAME: ${CI_REGISTRY_IMAGE}/website
+  before_script:
+    - set -o allexport
+    - source ${DEPLOY_ENV_FILE}
+    - set +o allexport
+    - apk update
+    - apk add --no-cache openssh-client
+    - chmod og= ${DEPLOY_SSH_KEY}
+  script:
+    - scp -i ${DEPLOY_SSH_KEY} -o StrictHostKeyChecking=no
+      ${STRAPI_ENV_FILE} ${WEBSITE_ENV_FILE} ${ROOT_ENV_FILE}
+      ${DEPLOY_USER}@${DEPLOY_HOST}:~/${CI_PROJECT_NAME}
+    - ssh -i ${DEPLOY_SSH_KEY} -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST}
+      "echo ${CI_REGISTRY_PASSWORD} | docker login -u ${CI_REGISTRY_USER} --password-stdin ${CI_REGISTRY} &&
+      docker pull ${REGISTRY_IMAGE_NAME} &&
+      cd ~/${CI_PROJECT_NAME} &&
+      mkdir -p strapi website &&
+      mv ROOT_ENV_FILE .env &&
+      mv STRAPI_ENV_FILE strapi/.env &&
+      mv WEBSITE_ENV_FILE website/.env &&
+      docker-compose up --detach --no-build website"

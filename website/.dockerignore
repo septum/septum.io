@@ -1,0 +1,20 @@
+# git
+.gitignore
+
+# dependencies
+node_modules/
+
+# next
+.next/
+
+# docker
+.dockerignore
+Dockerfile
+
+# environment
+.env
+
+# formatter
+prettier.config.js
+.prettierignore
+

@@ -1,0 +1,84 @@
+# BASE DEPENDENCIES IMAGE #
+
+FROM node:14-alpine AS base-dependencies
+
+WORKDIR /usr/local/src/website
+
+ENV NODE_ENV=production
+
+RUN apk add --no-cache libc6-compat
+
+
+# DOWNLOAD RUN DEPENDENCIES #
+
+FROM base-dependencies AS run-dependencies
+
+COPY package.json package-lock.json ./
+
+RUN npm ci --only=production
+
+
+# DOWNLOAD BUILD DEPENDENCIES #
+
+FROM base-dependencies AS build-dependencies
+
+ENV NODE_ENV=
+
+COPY package.json package-lock.json ./
+COPY --from=run-dependencies /usr/local/src/website/node_modules ./node_modules
+
+RUN npm install --no-save
+
+
+# BUILD STAGE #
+
+FROM base-dependencies AS build
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+ARG NEXT_PUBLIC_HOST
+ENV NEXT_PUBLIC_HOST=${NEXT_PUBLIC_HOST}
+
+ARG NEXT_PUBLIC_ASSETS_URL
+ENV NEXT_PUBLIC_ASSETS_URL=${NEXT_PUBLIC_ASSETS_URL}
+
+ARG INTERNAL_CMS_URL
+ENV INTERNAL_CMS_URL=${INTERNAL_CMS_URL}
+
+ARG CMS_REQUEST_TOKEN
+ENV CMS_REQUEST_TOKEN=${CMS_REQUEST_TOKEN}
+
+ARG PUBLIC_ASSETS_DOMAIN
+ENV PUBLIC_ASSETS_DOMAIN=${PUBLIC_ASSETS_DOMAIN}
+
+ARG NEXT_PUBLIC_REVALIDATE_IN_SECONDS
+ENV NEXT_PUBLIC_REVALIDATE_IN_SECONDS=${NEXT_PUBLIC_REVALIDATE_IN_SECONDS}
+
+ARG PREVIEW_SECRET_TOKEN
+ENV PREVIEW_SECRET_TOKEN=${PREVIEW_SECRET_TOKEN}
+
+COPY --from=build-dependencies /usr/local/src/website ./
+COPY . .
+
+RUN npm run build
+
+
+# RUN STAGE #
+
+FROM base-dependencies AS run
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+ENV PORT=8000
+
+COPY --from=build --chown=node:node /usr/local/src/website/package.json ./
+COPY --from=build --chown=node:node /usr/local/src/website/next.config.js ./
+COPY --from=build --chown=node:node /usr/local/src/website/public ./public
+COPY --from=build --chown=node:node /usr/local/src/website/.next/static ./.next/static
+COPY --from=build --chown=node:node /usr/local/src/website/.next/standalone ./
+
+USER node
+
+EXPOSE 8000
+
+CMD ["node", "server.js"]
